@@ -19,7 +19,7 @@ class _DashboardPageState extends State<DashboardPage> {
   
   Timer? _updateTimer;
   BleService? _bleService;
-  bool _lastConnectionState = false; // Track previous connection state
+  bool _lastConnectionState = false;
   
   // Data variables
   double _voltage = 0.0;
@@ -346,12 +346,6 @@ class _DashboardPageState extends State<DashboardPage> {
         // Dashboard uses its own direct data fetching
         final connectedDevice = bleService.connectedDevice;
         final storedDeviceName = bleService.connectedDeviceName;
-        debugPrint('[DASHBOARD] Connected device: $connectedDevice');
-        debugPrint('[DASHBOARD] Stored device name: "$storedDeviceName"');
-        if (connectedDevice != null) {
-          debugPrint('[DASHBOARD] Platform name: "${connectedDevice.platformName}"');
-          debugPrint('[DASHBOARD] Remote ID: ${connectedDevice.remoteId}');
-        }
         
         final deviceName = isConnected && connectedDevice != null 
           ? (storedDeviceName.isNotEmpty 

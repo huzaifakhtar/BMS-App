@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'presentation/pages/navigation/main_navigation.dart';
 import 'services/bluetooth/ble_service.dart';
 import 'services/bluetooth/bms_service.dart';
+import 'services/ble_scanner.dart';
 import 'presentation/cubits/theme_cubit.dart';
 
 void main() {
@@ -18,6 +19,7 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => BleService()),
         ChangeNotifierProvider(create: (_) => BmsService()),
+        ChangeNotifierProvider(create: (_) => BLEScanner()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
       child: Consumer<ThemeProvider>(

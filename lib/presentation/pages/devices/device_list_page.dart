@@ -4,6 +4,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:async';
 import '../../../services/bluetooth/ble_service.dart';
 import '../../../services/bluetooth/bms_service.dart';
+import '../../../services/ble_scanner.dart';
+import '../../../models/ble_device_info.dart';
 import '../../cubits/theme_cubit.dart';
 
 class DeviceListPage extends StatefulWidget {
@@ -31,7 +33,7 @@ class _DeviceListPageState extends State<DeviceListPage> with AutomaticKeepAlive
   }
 
   Future<void> _startAutomaticScan() async {
-    final bleService = context.read<BleService>();
+    final bleScanner = context.read<BLEScanner>();
     
     await Future.delayed(const Duration(milliseconds: 300));
     
@@ -39,9 +41,9 @@ class _DeviceListPageState extends State<DeviceListPage> with AutomaticKeepAlive
       setState(() => _isScanning = true);
       
       try {
-        await bleService.startScan();
+        await bleScanner.startScan(timeout: const Duration(seconds: 10));
         await Future.delayed(const Duration(seconds: 3));
-        bleService.stopScan();
+        await bleScanner.stopScan();
       } finally {
         if (mounted) setState(() => _isScanning = false);
       }
@@ -81,18 +83,18 @@ class _DeviceListPageState extends State<DeviceListPage> with AutomaticKeepAlive
   Widget build(BuildContext context) {
     super.build(context);
     
-    return Consumer2<ThemeProvider, BleService>(
-      builder: (context, themeProvider, bleService, _) {
+    return Consumer3<ThemeProvider, BleService, BLEScanner>(
+      builder: (context, themeProvider, bleService, bleScanner, _) {
         return Scaffold(
           backgroundColor: themeProvider.backgroundColor,
           appBar: _buildAppBar(themeProvider),
-          body: Consumer<BleService>(
-            builder: (context, bleService, _) {
+          body: Consumer2<BleService, BLEScanner>(
+            builder: (context, bleService, bleScanner, _) {
               return RefreshIndicator(
                 onRefresh: _performScan,
                 color: themeProvider.primaryColor,
                 backgroundColor: themeProvider.cardColor,
-                child: _buildDeviceList(bleService, themeProvider),
+                child: _buildDeviceList(bleService, bleScanner, themeProvider),
               );
             },
           ),
@@ -128,21 +130,21 @@ class _DeviceListPageState extends State<DeviceListPage> with AutomaticKeepAlive
 
   Future<void> _performScan() async {
     setState(() => _isScanning = true);
-    final bleService = context.read<BleService>();
+    final bleScanner = context.read<BLEScanner>();
     
     try {
-      await bleService.startScan();
-      await Future.delayed(const Duration(seconds: 3));
-      bleService.stopScan();
+      await bleScanner.startScan(timeout: const Duration(seconds: 10));
+      await Future.delayed(const Duration(seconds: 10));
+      await bleScanner.stopScan();
     } finally {
       if (mounted) setState(() => _isScanning = false);
     }
   }
 
-  Widget _buildDeviceList(BleService bleService, ThemeProvider themeProvider) {
+  Widget _buildDeviceList(BleService bleService, BLEScanner bleScanner, ThemeProvider themeProvider) {
     final isConnected = bleService.isConnected;
     final connectedDevice = bleService.connectedDevice;
-    final discoveredDevices = bleService.scanResults;
+    final discoveredDevices = bleScanner.discoveredDevices;
     
     if (!isConnected && discoveredDevices.isEmpty) {
       return _EmptyDeviceList(isScanning: _isScanning, onScan: _performScan, themeProvider: themeProvider);
@@ -182,10 +184,10 @@ class _DeviceListPageState extends State<DeviceListPage> with AutomaticKeepAlive
             ),
           ),
           const SizedBox(height: 16),
-          ...discoveredDevices.map((scanResult) => Padding(
+          ...discoveredDevices.map((deviceInfo) => Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _AvailableDeviceCard(
-              scanResult: scanResult,
+              deviceInfo: deviceInfo,
               bleService: bleService,
               themeProvider: themeProvider,
               onConnect: _connectToDevice,
@@ -495,7 +497,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Text(
-            _formatDeviceId(device, bleService),
+            device.remoteId.toString(),
             style: TextStyle(
               color: themeProvider.secondaryTextColor,
               fontSize: 14,
@@ -524,19 +526,16 @@ class _ConnectedDeviceCard extends StatelessWidget {
     );
   }
 
-  String _formatDeviceId(BluetoothDevice device, BleService bleService) {
-    return device.remoteId.toString();
-  }
 }
 
 class _AvailableDeviceCard extends StatelessWidget {
-  final ScanResult scanResult;
+  final BLEDeviceInfo deviceInfo;
   final BleService bleService;
   final ThemeProvider themeProvider;
   final Function(BluetoothDevice) onConnect;
 
   const _AvailableDeviceCard({
-    required this.scanResult,
+    required this.deviceInfo,
     required this.bleService,
     required this.themeProvider,
     required this.onConnect,
@@ -544,8 +543,8 @@ class _AvailableDeviceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final device = scanResult.device;
-    final rssi = scanResult.rssi;
+    final device = deviceInfo.device;
+    final rssi = deviceInfo.rssi;
     
     return Container(
       decoration: BoxDecoration(
@@ -600,7 +599,7 @@ class _AvailableDeviceCard extends StatelessWidget {
           ),
         ),
         title: Text(
-          device.platformName.isNotEmpty ? device.platformName : 'Unknown Device',
+          deviceInfo.name,
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 14,
@@ -617,12 +616,47 @@ class _AvailableDeviceCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      _formatDeviceId(device, bleService),
+                      deviceInfo.macAddress.startsWith('ID:') 
+                          ? 'Device ${deviceInfo.macAddress}' 
+                          : 'MAC: ${deviceInfo.macAddress}',
                       style: TextStyle(
                         color: themeProvider.secondaryTextColor,
-                        fontSize: 14,
+                        fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
+                    ),
+                  ),
+                  if (!deviceInfo.macAddress.startsWith('ID:'))
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'REAL',
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'UUIDs: ${_formatServiceUUIDs(deviceInfo.serviceUuids)}',
+                      style: TextStyle(
+                        color: themeProvider.secondaryTextColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -721,8 +755,10 @@ class _AvailableDeviceCard extends StatelessWidget {
 
 
 
-  String _formatDeviceId(BluetoothDevice device, BleService bleService) {
-    return device.remoteId.toString();
+  String _formatServiceUUIDs(List<String> uuids) {
+    if (uuids.isEmpty) return "No services";
+    if (uuids.length <= 2) return uuids.join(", ");
+    return "${uuids.take(2).join(", ")}... (+${uuids.length - 2})";
   }
 
   Color _getRssiColor(int rssi) {
